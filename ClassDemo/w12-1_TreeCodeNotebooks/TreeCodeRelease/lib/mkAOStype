@@ -1,0 +1,251 @@
+#!/usr/bin/env python
+
+"""
+Python script to read in a structure definition of P from "<filename>.in"
+and write the structure type class definitions used by the AOS<P> class in "<filename>.cc
+"""
+
+import re
+import sys
+
+COMMENTS = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"', re.DOTALL | re.MULTILINE)
+
+def remove_comments(content):
+    #comments = COMMENTS.findall(content)
+    #print(comments[0])
+    return COMMENTS.sub('\n', content)
+
+# read the input file C++ structure definition and
+#  get the name of the structure, the member variables, and their types
+def getDict(fname):
+    d = {}
+    with open(fname) as f:
+        lines = f.read()
+    lines = remove_comments(lines)
+    lines = lines.splitlines()
+
+    name = ""
+    inComment = False
+    template = ""
+    template_var = ""
+    for lineno, line in enumerate(lines):
+
+        sline = line.lstrip().rstrip('\n');
+
+        # skip over blank lines
+        if sline =='': continue
+
+        # look for template keyword
+        if line[0:8] == 'template':
+            template = line
+            template_var = template.replace('<',' ').replace('>',' ').split()[-1]
+            template_var = "<" + template_var + ">"
+            print(template)
+            print(template_var)
+
+        # look for "struct" or "class" keyword
+        line = sline.split()[0:2]
+
+        if line == []: continue
+        if line[0]=='struct' or line[0]=='class':
+            name = line[1]
+            break
+
+    # must have found "struct foo" or "class foo"
+    if len(name)==0:
+        print(f"Error: mkAOStype: syntax error in file '{fname}': no 'struct' or 'class' keyword")
+        exit(1)
+    elif line[1] == '{':
+        print(f"Error: mkAOStype: syntax error in file '{fname}': no {line[0]} name found")
+        exit(1)
+
+    # now extract the variable names and types
+    for line in lines[lineno+1:]:
+        foo = line.split('//')[0].lstrip().rstrip().rstrip(';')
+        t,b,n = foo.rpartition(' ')
+        t = "".join(t.split())
+        n = "".join(n.split())
+        if t=="": continue
+        print(f"'{t}' '{b}', '{n}'")
+        d[n]=t
+
+    return name, d, template, template_var
+
+def makePtypeRef(d, name, f):
+    vlist = list(d.keys())
+    tlist = list(d.values())
+
+    f.write(f"// {name}Ref{template_var} container allows using {name}[i].a syntax to reference elements;\n")
+    f.write(f"// it must match the {name}{template_var} container precisely\n")
+    if len(template)>0: f.write(f"{template}\n");
+    f.write(f"struct {name}Ref {{\n\n")
+    f.write(f"    void set( const {name}{template_var} &Q );\n")
+    f.write(f"    {name}Ref{template_var}& operator=(const {name}Ref{template_var} &);\n")
+    f.write(f"    {name}Ref{template_var}& operator=(const {name}{template_var} &);\n\n")
+
+    # declare elements of struct
+    for n in d: f.write(f"    {d[n]} &{n};\n")
+    f.write("};\n")
+
+def makePtypeRefSet(d, name, f):
+    vlist = list(d.keys())
+    tlist = list(d.values())
+
+    if len(template)>0: f.write(f"{template}\n");
+    f.write(f"void {name}Ref{template_var}::set( const {name}{template_var} &Q ) {{\n")
+    for n in d: f.write(f"    {n} = Q.{n};\n")
+    f.write("}\n\n")
+
+def makePtypeRefOperatorEquals(d, name, f):
+    vlist = list(d.keys())
+    tlist = list(d.values())
+
+    if len(template)>0: f.write(f"{template}\n");
+    f.write(f"{name}Ref{template_var}& {name}Ref{template_var}::operator=( const {name}Ref{template_var}& Q) {{\n")
+    for n in d: f.write(f"    {n} = Q.{n};\n")
+    f.write("    return *this;\n")
+    f.write("}\n\n")
+
+    if len(template)>0: f.write(f"{template}\n");
+    f.write(f"{name}Ref{template_var}& {name}Ref{template_var}::operator=( const {name}{template_var}& Q) {{\n")
+    for n in d: f.write(f"    {n} = Q.{n};\n")
+    f.write("    return *this;\n")
+    f.write("}\n\n")
+
+def makePtypePtr(d, name, f):
+    vlist = list(d.keys())
+    tlist = list(d.values())
+
+    f.write(f"// {name}Ptr{template_var} container allows using {name}.arrays().a syntax to reference whole arrays;\n")
+    f.write(f"// it must match the {name}{template_var} container precisely\n")
+    if len(template)>0: f.write(f"{template}\n");
+    f.write(f"struct {name}Ptr {{\n")
+    # declare elements of struct
+    for n in d: f.write(f"    {d[n]} *{n};\n")
+    f.write("};\n")
+
+
+def makePtype(d, name, f):
+    vlist = list(d.keys())
+    tlist = list(d.values())
+
+    f.write(f"// The actual {name} structure\n")
+    if len(template)>0: f.write(f"{template}\n");
+    f.write(f"struct {name} {{\n")
+
+    # create default constructor
+    f.write(f"    {name}( ) {{}}\n")
+    # create constructor
+    cstr = f"    {name}( {tlist[0]} {vlist[0]}"
+    for v in vlist[1:]: cstr += f", {d[v]} {v}"
+    cstr += f" ) : {vlist[0]}({vlist[0]})"
+    for v in vlist[1:]: cstr += f", {v}({v})"
+    cstr += " {}"
+    f.write(cstr+"\n")
+    # create constructor
+    cstr = f"    {name}( {name}Ref{template_var} Q ) : {vlist[0]}(Q.{vlist[0]})"
+    for v in vlist[1:]: cstr += f", {v}(Q.{v})"
+    cstr += " {}"
+    f.write(cstr+"\n")
+
+    f.write("\n")
+    # declare elements of struct
+    for n in d: f.write(f"    {d[n]} {n};\n")
+    f.write("\n")
+
+    # create tuple type
+    f.write(f"    // basetype must be set to a tuple of pointers to all of the types in {name}\n")
+    btype = "    using basetype = std::tuple<" + list(d.values())[0] + "*";
+    for v in list(d.values())[1:]:
+        btype += ", " + v + "*"
+    btype += ">;"
+    f.write(btype+"\n")
+
+    # create tuptype
+    btype = "    using tuptype = std::tuple<" + list(d.values())[0];
+    for v in list(d.values())[1:]:
+        btype += ", " + v
+    btype += ">;"
+    f.write(btype+"\n")
+
+    btype = "    using tupref = std::tuple<" + list(d.values())[0] + "&";
+    for v in list(d.values())[1:]:
+        btype += ", " + v + "&"
+    btype += ">;"
+    f.write(btype+"\n")
+
+    f.write(f"    using reftype = {name}Ref{template_var};\n")
+    f.write(f"    using ptrtype = {name}Ptr{template_var};\n")
+    f.write("\n");
+
+    n = len(d)
+    cexpr = f'    static constexpr std::array<const std::basic_string_view<char>, {2*n}> defs =\n'
+    cexpr += f'            {{ type_name<decltype({vlist[0]})>(), "{vlist[0]}", '
+    for v in list(d.keys())[1:]:
+        cexpr += f'type_name<decltype({v})>(), "{v}", '
+    cexpr += '};\n'
+    f.write(cexpr)
+
+    f.write("};\n")
+
+if len(sys.argv) < 2:
+    print("usage: mksoastruct <filename.in>")
+    exit(1)
+
+fname = sys.argv[1].rstrip("\n")
+if fname[-3:] != ".in":
+    print("input file must end in '.in'")
+    exit(1)
+
+print(f'mksoastruct: processing input file "{fname}"')
+
+ofname = fname[:-3] + ".cc"
+print(f'cc file name "{ofname}"')
+
+protectString = "__" + fname[:-3].upper() + "_CC__"
+
+name, contents, template, template_var = getDict("ptype.in")
+
+with open("ptype.cc", "w") as f:
+    header = """
+/*
+Structure types to go with the AOS class.
+The complexity here is due to the fact that C++ does not have meaningful
+reflection.
+
+--------------------------------------------------------------------------------
+DO NOT EDIT THIS FILE -- it is made by the mkAOStype Python script from the basic
+structure in <filename>.in
+
+If you want to change the structures in <filename>.cc, change <filename>.in
+and run "./mkAOStype <filename>.in" again.
+--------------------------------------------------------------------------------
+*/
+"""
+    f.write("// -*- buffer-read-only: t -*-\n\n")
+
+    f.write(f"#ifndef {protectString}\n#define {protectString}\n\n");
+
+    f.write(header+"\n")
+
+    f.write('#include "typename.cc"\n');
+    f.write('#include "smallvec.cc"\n\n');
+
+    f.write("// forward declaration\n")
+    f.write(f"{template}\n")
+    f.write(f"struct {name};\n\n")
+
+    makePtypeRef(contents, name, f)
+    f.write("\n");
+
+    makePtypePtr(contents, name, f)
+    f.write("\n");
+
+    makePtype(contents, name, f)
+    f.write("\n");
+
+    makePtypeRefSet(contents, name, f)
+
+    makePtypeRefOperatorEquals(contents, name, f)
+
+    f.write(f"#endif // {protectString}\n");

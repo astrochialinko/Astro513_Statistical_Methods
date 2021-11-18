@@ -1,0 +1,43 @@
+
+Code profiling recipes:
+
+--------------------------------------------------------------------------------
+
+Profiling Python code:
+
+First profile code using cProfile:
+
+      if __name__ == "__main__":
+          import cProfile
+          import pstats
+
+          with cProfile.Profile() as pr:
+               runit() # your code
+
+          stats = pstats.Stats(pr)
+          stats.sort_stats('tottime')
+          stats.dump_stats("nbody.pprof")
+
+Next run snakeviz on nbody.pprof output
+
+--------------------------------------------------------------------------------
+
+Profiling C++ code:
+
+Statistical Profiler: fast, less accurate (usually just fine)
+            compile with -pg flag
+            run code: ./nbody
+            generate profile: gprof nbody gmon.out
+
+OR
+
+Deterministic Profiler: more accurate, much slower:
+              compile with -g
+              run code:  valgrind --tool=callgrind ./nbody
+              examine results: kcachegrind
+
+(also cachegrind/kcachegrind for memory-access patterns and cache usage)
+
+
+There are much better profilers out there, e.g.Vtune under windows;
+most are not free...

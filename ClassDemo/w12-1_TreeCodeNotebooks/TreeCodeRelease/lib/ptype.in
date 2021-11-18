@@ -1,0 +1,15 @@
+/*
+ This is the input ptype struct to be processed by mkAOStype.
+ NB: only one member variable defined per line!
+ NB: at most one template parameter present
+*/
+
+template <typename T>
+struct Ptype {
+    SmallVec<T, 3> r; // position
+    SmallVec<T, 3> v; // velocity
+    SmallVec<T, 3> a; // acceleration
+    T pot;            // particle mass
+    T mass;           // particle mass
+    int id;           // particle id
+};

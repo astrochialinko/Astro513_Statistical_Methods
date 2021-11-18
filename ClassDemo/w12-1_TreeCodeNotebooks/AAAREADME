@@ -1,0 +1,4 @@
+Execute the first five notebooks in this directory.
+
+Next, move to TreeCodeRelease. Type "make lib" to compile the C++ library, and
+then execute the final two notebooks.
